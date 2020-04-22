@@ -73,7 +73,7 @@ abstract class WordPressUploadTask : DefaultTask() {
 
   @Input
   @Optional
-  var port: Property<Int> = project.objects.property()
+  val port: Property<Int> = project.objects.property()
 
   @Input
   var username: String = ""
