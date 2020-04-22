@@ -10,7 +10,7 @@ class WordPressTaxonomies(private val wordPressHttpClient: WordPressHttpClient, 
 
   fun getTaxonomyReferencesBySlug(documentType: WordPressDocumentType, taxonomySlugs: Set<String>): Map<String, Map<String, Int>> {
     // taxonomies cannot be assigned on a page
-   return if (documentType.name !== "page") {
+   return if (taxonomySlugs.isNotEmpty() && documentType.name !== "page") {
       val taxonomyEndpoints = getTaxonomyEndpoints(documentType).map {
         it.slug to it
       }.toMap()
