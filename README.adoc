@@ -1,0 +1,77 @@
+= WordPress Publish Plugin for Gradle
+
+image:https://github.com/neo4j-contrib/wordpress-publish-gradle-plugin/workflows/Build/badge.svg[Build status,link=https://github.com/neo4j-contrib/wordpress-publish-gradle-plugin/actions?query=workflow%3ABuild]
+image:https://img.shields.io/maven-metadata/v?metadataUrl=https%3A%2F%2Fplugins.gradle.org%2Fm2%2Fcom.neo4j.gradle.wordpress.WordPressPlugin%2Fcom.neo4j.gradle.wordpress.WordPressPlugin.gradle.plugin%2Fmaven-metadata.xml[Gradle Plugin,link=https://plugins.gradle.org/plugin/com.neo4j.gradle.wordpress.WordPressPlugin]
+
+A plugin to publish posts or pages to WordPress from an HTML file and a YAML file that contains metadata.
+
+== Usage
+
+[source,gradle]
+----
+import com.neo4j.gradle.wordpress.WordPressUploadTask
+
+plugins {
+  id('com.neo4j.gradle.wordpress.WordPressPlugin')
+}
+
+wordpress {
+  username = 'username'
+  password = 'password'
+  host = 'localhost'
+  scheme = 'http'
+}
+
+task wordPressUpload(type: WordPressUploadTask) {
+  source = "html"
+  type = "post"
+  status = "private"
+}
+----
+
+The above configuration will publish all `.html` files from the _html_ directory to WordPress.
+
+== Metadata
+
+The plugin relies on a YAML metadata file to publish the HTML content.
+This file must at least contain a `slug` and a `title`:
+
+.intro-neo4j-about.yml
+[source,yaml]
+----
+---
+slug: 00-intro-neo4j-about
+title: Introduction to Neo4j 4.0
+----
+
+You must provide one YAML file per HTML page using the same name.
+So if you have an `intro-neo4j-about.html` file, you must provide the metadata in a file named `intro-neo4j-about.yml`.
+
+Here's a complete example:
+
+[source,yaml]
+----
+---
+slug: 00-intro-neo4j-about
+title: Introduction to Neo4j 4.0
+author:
+  name: Michael Hunger
+  first_name: Michael
+  last_name: Hunger
+  email: info@neotechnology.com
+taxonomies:
+- key: os
+  values:
+  - linux
+- key: programming_language
+  values:
+  - java
+- key: neo4j_version
+  values:
+  - 3-5
+  - 3-6
+tags:
+  - introduction
+categories:
+  - training
+----
