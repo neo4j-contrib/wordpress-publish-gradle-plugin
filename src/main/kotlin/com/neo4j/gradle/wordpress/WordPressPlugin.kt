@@ -27,6 +27,7 @@ import java.util.*
 open class WordPressExtension(objects: ObjectFactory) {
   val scheme: Property<String> = objects.property()
   val host: Property<String> = objects.property()
+  val port: Property<Int?> = objects.property()
   val username: Property<String> = objects.property()
   val password: Property<String> = objects.property()
 }
@@ -37,15 +38,17 @@ open class WordPressPlugin : Plugin<Project> {
     target.extensions.create("wordpress", WordPressExtension::class.java)
   }
 }
+
 data class Author(val name: String, val firstName: String, val lastName: String, val email: String)
 
 data class Taxonomy(val key: String, val values: List<String>)
 
 data class DocumentAttributes(val slug: String,
                               val title: String,
-                              val tags: List<String>,
-                              val taxonomies: List<Taxonomy>,
-                              val author: Author,
+                              val tags: Set<String>,
+                              val categories: Set<String>,
+                              val taxonomies: Set<Taxonomy>,
+                              val author: Author?,
                               val content: String,
                               val parentPath: String?)
 
@@ -68,6 +71,9 @@ abstract class WordPressUploadTask : DefaultTask() {
   var host: String = ""
 
   @Input
+  var port: Int = -1
+
+  @Input
   var username: String = ""
 
   @Input
@@ -83,12 +89,12 @@ abstract class WordPressUploadTask : DefaultTask() {
       return
     }
     val wordPressUpload = WordPressUpload(
-            documentType = WordPressDocumentType(type),
-            documentStatus = status,
-            documentTemplate = template,
-            sources = sources,
-            connectionInfo = wordPressConnectionInfo(),
-            logger = logger
+      documentType = WordPressDocumentType(type),
+      documentStatus = status,
+      documentTemplate = template,
+      sources = sources,
+      connectionInfo = wordPressConnectionInfo(),
+      logger = logger
     )
     wordPressUpload.publish()
   }
@@ -99,11 +105,13 @@ abstract class WordPressUploadTask : DefaultTask() {
     val schemeValue = wordPressExtension?.scheme?.getOrElse(scheme) ?: scheme
     val usernameValue = wordPressExtension?.username?.getOrElse(username) ?: username
     val passwordValue = wordPressExtension?.password?.getOrElse(password) ?: password
+    val portValue = wordPressExtension?.port?.orNull ?: port
     return WordPressConnectionInfo(
-            scheme = schemeValue,
-            host = hostValue,
-            username = usernameValue,
-            password = passwordValue
+      scheme = schemeValue,
+      host = hostValue,
+      port = portValue,
+      username = usernameValue,
+      password = passwordValue
     )
   }
 
@@ -138,6 +146,7 @@ abstract class WordPressUploadTask : DefaultTask() {
 
 data class WordPressConnectionInfo(val scheme: String,
                                    val host: String,
+                                   val port: Int?,
                                    val username: String,
                                    val password: String,
                                    val connectTimeout: Duration = Duration.ofSeconds(10),
@@ -206,13 +215,19 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
     val taxonomyReferencesBySlug = if (documentType.name !== "page") {
       val taxonomySlugs = documentsWithAttributes.flatMap {
         it.taxonomies.map { taxonomy -> taxonomy.key }
-      }.toSet()
+      }.toMutableSet()
+      if (documentsWithAttributes.find { it.tags.isNotEmpty() } != null) {
+        taxonomySlugs.add("tags")
+      }
+      if (documentsWithAttributes.find { it.categories.isNotEmpty() } != null) {
+        taxonomySlugs.add("categories")
+      }
       WordPressTaxonomies(httpClient, logger).getTaxonomyReferencesBySlug(documentType, taxonomySlugs)
     } else {
       emptyMap()
     }
     val usersService = WordPressUsers(httpClient, logger)
-    val authorsCache = mutableMapOf<String, WordPressUser?>()
+    val wordPressAuthorsCache = mutableMapOf<String, WordPressUser?>()
     for (documentAttributes in documentsWithAttributes) {
       val data = mutableMapOf<String, Any>(
         "date_gmt" to date,
@@ -220,9 +235,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
         "status" to documentStatus,
         "title" to documentAttributes.title,
         "content" to documentAttributes.content,
-        // fixme: expect a list of ids "{"tags":"tags[0] is not of type integer."}"
-        //"tags" to documentAttributes.tags,
-        "type" to documentType
+        "type" to documentType.name
       )
       for (taxonomy in documentAttributes.taxonomies) {
         val values = taxonomy.values.mapNotNull { value ->
@@ -235,6 +248,32 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
           }
         }
         data[taxonomy.key] = values
+      }
+      val categoryIds = documentAttributes.categories.mapNotNull { category ->
+        val taxonomyReference = taxonomyReferencesBySlug["categories"]?.get(category)
+        if (taxonomyReference == null) {
+          logger.warn("Unable to resolve category $category on post ${documentAttributes.slug}")
+          // remind: should we automatically create the missing category?
+          null
+        } else {
+          taxonomyReference
+        }
+      }
+      if (categoryIds.isNotEmpty()) {
+        data["categories"] = categoryIds
+      }
+      val tagIds = documentAttributes.tags.mapNotNull { tag ->
+        val taxonomyReference = taxonomyReferencesBySlug["tags"]?.get(tag)
+        if (taxonomyReference == null) {
+          logger.warn("Unable to resolve tag $tag on post ${documentAttributes.slug}")
+          // remind: should we automatically create the missing tag?
+          null
+        } else {
+          taxonomyReference
+        }
+      }
+      if (tagIds.isNotEmpty()) {
+        data["tags"] = tagIds
       }
       val parentPath = documentAttributes.parentPath
       if (documentType == WordPressDocumentType("page") && parentPath != null) {
@@ -254,18 +293,21 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       if (documentTemplate.isNotBlank()) {
         data["template"] = documentTemplate
       }
-      val authorName = documentAttributes.author.name
-      val author = if (authorsCache.contains(authorName)) {
-        authorsCache[authorName]
-      } else {
-        val result = usersService.findUser(authorName)
-        authorsCache[authorName] = result
-        result
-      }
-      if (author == null) {
-        logger.info("Unable to find the author for email $authorName, using the default author")
-      } else {
-        data["author"] = author.id
+      val documentAuthor = documentAttributes.author
+      if (documentAuthor != null) {
+        val authorName = documentAuthor.name
+        val wordPressAuthor = if (wordPressAuthorsCache.contains(authorName)) {
+          wordPressAuthorsCache[authorName]
+        } else {
+          val result = usersService.findUser(authorName)
+          wordPressAuthorsCache[authorName] = result
+          result
+        }
+        if (wordPressAuthor == null) {
+          logger.info("Unable to find the author for email $authorName, using the default author")
+        } else {
+          data["author"] = wordPressAuthor.id
+        }
       }
       val wordPressDocument = wordPressDocumentsBySlug[documentAttributes.slug]
       if (wordPressDocument != null) {
@@ -307,7 +349,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             val parentLinkPath = parentPath.removeSuffix("/")
             if (linkPath == parentLinkPath) {
               val slug = item.string("slug")!!
-                WordPressDocument(item.int("id")!!, slug, documentType)
+              WordPressDocument(item.int("id")!!, slug, documentType)
             } else {
               null
             }
@@ -388,9 +430,24 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             // The terms assigned to the object in the post_tag taxonomy.
             val tags = getTags(attributes)
             val taxonomies = getTaxonomies(attributes)
+            val categories = getCategories(attributes)
             val parentPath = getParentPath(attributes)
+            val taxonomiesByKey = taxonomies.groupBy { it.key }
+            val tagsAsTaxonomies = taxonomiesByKey["tags"]
+            val uniqueTags = if (tagsAsTaxonomies != null) {
+              tags.toSet() + tagsAsTaxonomies.flatMap { it.values }.toSet()
+            } else {
+              tags.toSet()
+            }
+            val categoriesAsTaxonomies = taxonomiesByKey["categories"]
+            val uniqueCategories = if (categoriesAsTaxonomies != null) {
+              categories.toSet() + categoriesAsTaxonomies.flatMap { it.values }.toSet()
+            } else {
+              categories.toSet()
+            }
+            val uniqueTaxonomies = taxonomies.filter { it.key != "categories" && it.key != "tags" }.toSet()
             val author = getAuthor(attributes)
-              DocumentAttributes(slug, title, tags, taxonomies, author, file.readText(Charsets.UTF_8), parentPath)
+            DocumentAttributes(slug, title, uniqueTags, uniqueCategories, uniqueTaxonomies, author, file.readText(Charsets.UTF_8), parentPath)
           } else {
             null
           }
@@ -421,7 +478,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       value.mapNotNull { info ->
         if (info is Map<*, *>) {
           @Suppress("UNCHECKED_CAST")
-          (Taxonomy(info["key"] as String, info["values"] as List<String>))
+          Taxonomy(info["key"] as String, info["values"] as List<String>)
         } else {
           null
         }
@@ -429,6 +486,14 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
     } else {
       listOf()
     }
+  }
+
+  private fun getCategories(attributes: Map<*, *>): List<String> {
+    val value = attributes["categories"] ?: return listOf()
+    if (value is List<*>) {
+      return value.filterIsInstance<String>()
+    }
+    return listOf()
   }
 
   private fun getTags(attributes: Map<*, *>): List<String> {
@@ -451,9 +516,12 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
     return value
   }
 
-  private fun getAuthor(attributes: Map<*, *>): Author {
-    val value = attributes["author"] as Map<*, *>
-    return Author(value["name"] as String, value["first_name"] as String, value["last_name"] as String, value["email"] as String)
+  private fun getAuthor(attributes: Map<*, *>): Author? {
+    val author = attributes["author"]
+    if (author is Map<*, *>) {
+      return Author(author["name"] as String, author["first_name"] as String, author["last_name"] as String, author["email"] as String)
+    }
+    return null
   }
 
   private fun getTitle(attributes: Map<*, *>, yamlFilePath: String, fileName: String): String? {

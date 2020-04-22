@@ -15,12 +15,18 @@ class WordPressHttpClient(val connectionInfo: WordPressConnectionInfo, private v
   private val underlyingHttpClient = httpClient()
   private val klaxon = Klaxon()
 
-  fun baseUrlBuilder() = HttpUrl.Builder()
-    .scheme(connectionInfo.scheme)
-    .host(connectionInfo.host)
-    .addPathSegment("wp-json")
-    .addPathSegment("wp")
-    .addPathSegment("v2")
+  fun baseUrlBuilder(): HttpUrl.Builder {
+    val builder = HttpUrl.Builder()
+      .scheme(connectionInfo.scheme)
+      .host(connectionInfo.host)
+    if (connectionInfo.port != null) {
+      builder.port(connectionInfo.port)
+    }
+    return builder
+      .addPathSegment("wp-json")
+      .addPathSegment("wp")
+      .addPathSegment("v2")
+  }
 
   /**
    * Execute a request that returns JSON.
@@ -73,9 +79,9 @@ class WordPressHttpClient(val connectionInfo: WordPressConnectionInfo, private v
       val hasNext = totalPages > page
       response.body.use {
         if (it != null) {
-            PaginatedResult(mapper(klaxon.parseJsonArray(it.charStream())), hasNext)
+          PaginatedResult(mapper(klaxon.parseJsonArray(it.charStream())), hasNext)
         } else {
-            PaginatedResult(emptyList(), hasNext)
+          PaginatedResult(emptyList(), hasNext)
         }
       }
     }
@@ -134,6 +140,5 @@ class WordPressHttpClient(val connectionInfo: WordPressConnectionInfo, private v
     return count
   }
 }
-
 
 data class PaginatedResult<T>(val result: List<T>, val hasNext: Boolean)
