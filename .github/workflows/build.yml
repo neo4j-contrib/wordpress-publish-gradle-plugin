@@ -2,11 +2,15 @@ name: Build
 
 on: [push, pull_request]
 
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Run a one-line script
-      run: echo Hello, world!
+    - uses: actions/setup-java@v1
+      with:
+        java-version: 11
+    - name: Test
+      uses: eskatos/gradle-command-action@v1
+      with:
+        arguments: check
