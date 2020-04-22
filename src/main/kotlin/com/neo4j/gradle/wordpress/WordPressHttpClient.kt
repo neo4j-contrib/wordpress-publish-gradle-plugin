@@ -73,9 +73,9 @@ class WordPressHttpClient(val connectionInfo: WordPressConnectionInfo, private v
       val hasNext = totalPages > page
       response.body.use {
         if (it != null) {
-            PaginatedResult(mapper(klaxon.parseJsonArray(it.charStream())), hasNext)
+          PaginatedResult(mapper(klaxon.parseJsonArray(it.charStream())), hasNext)
         } else {
-            PaginatedResult(emptyList(), hasNext)
+          PaginatedResult(emptyList(), hasNext)
         }
       }
     }

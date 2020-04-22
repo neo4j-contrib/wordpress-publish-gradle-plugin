@@ -43,8 +43,9 @@ data class Taxonomy(val key: String, val values: List<String>)
 
 data class DocumentAttributes(val slug: String,
                               val title: String,
-                              val tags: List<String>,
-                              val taxonomies: List<Taxonomy>,
+                              val tags: Set<String>,
+                              val categories: Set<String>,
+                              val taxonomies: Set<Taxonomy>,
                               val author: Author,
                               val content: String,
                               val parentPath: String?)
@@ -83,12 +84,12 @@ abstract class WordPressUploadTask : DefaultTask() {
       return
     }
     val wordPressUpload = WordPressUpload(
-            documentType = WordPressDocumentType(type),
-            documentStatus = status,
-            documentTemplate = template,
-            sources = sources,
-            connectionInfo = wordPressConnectionInfo(),
-            logger = logger
+      documentType = WordPressDocumentType(type),
+      documentStatus = status,
+      documentTemplate = template,
+      sources = sources,
+      connectionInfo = wordPressConnectionInfo(),
+      logger = logger
     )
     wordPressUpload.publish()
   }
@@ -100,10 +101,10 @@ abstract class WordPressUploadTask : DefaultTask() {
     val usernameValue = wordPressExtension?.username?.getOrElse(username) ?: username
     val passwordValue = wordPressExtension?.password?.getOrElse(password) ?: password
     return WordPressConnectionInfo(
-            scheme = schemeValue,
-            host = hostValue,
-            username = usernameValue,
-            password = passwordValue
+      scheme = schemeValue,
+      host = hostValue,
+      username = usernameValue,
+      password = passwordValue
     )
   }
 
@@ -206,7 +207,13 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
     val taxonomyReferencesBySlug = if (documentType.name !== "page") {
       val taxonomySlugs = documentsWithAttributes.flatMap {
         it.taxonomies.map { taxonomy -> taxonomy.key }
-      }.toSet()
+      }.toMutableSet()
+      if (documentsWithAttributes.find { it.tags.isNotEmpty() } != null) {
+        taxonomySlugs.add("tags")
+      }
+      if (documentsWithAttributes.find { it.categories.isNotEmpty() } != null) {
+        taxonomySlugs.add("categories")
+      }
       WordPressTaxonomies(httpClient, logger).getTaxonomyReferencesBySlug(documentType, taxonomySlugs)
     } else {
       emptyMap()
@@ -220,8 +227,6 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
         "status" to documentStatus,
         "title" to documentAttributes.title,
         "content" to documentAttributes.content,
-        // fixme: expect a list of ids "{"tags":"tags[0] is not of type integer."}"
-        //"tags" to documentAttributes.tags,
         "type" to documentType
       )
       for (taxonomy in documentAttributes.taxonomies) {
@@ -235,6 +240,32 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
           }
         }
         data[taxonomy.key] = values
+      }
+      val categoryIds = documentAttributes.categories.mapNotNull { category ->
+        val taxonomyReference = taxonomyReferencesBySlug["categories"]?.get(category)
+        if (taxonomyReference == null) {
+          logger.warn("Unable to resolve category $category on post ${documentAttributes.slug}")
+          // remind: should we automatically create the missing category?
+          null
+        } else {
+          taxonomyReference
+        }
+      }
+      if (categoryIds.isNotEmpty()) {
+        data["categories"] = categoryIds
+      }
+      val tagIds = documentAttributes.tags.mapNotNull { tag ->
+        val taxonomyReference = taxonomyReferencesBySlug["tags"]?.get(tag)
+        if (taxonomyReference == null) {
+          logger.warn("Unable to resolve tag $tag on post ${documentAttributes.slug}")
+          // remind: should we automatically create the missing tag?
+          null
+        } else {
+          taxonomyReference
+        }
+      }
+      if (tagIds.isNotEmpty()) {
+        data["tags"] = tagIds
       }
       val parentPath = documentAttributes.parentPath
       if (documentType == WordPressDocumentType("page") && parentPath != null) {
@@ -307,7 +338,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             val parentLinkPath = parentPath.removeSuffix("/")
             if (linkPath == parentLinkPath) {
               val slug = item.string("slug")!!
-                WordPressDocument(item.int("id")!!, slug, documentType)
+              WordPressDocument(item.int("id")!!, slug, documentType)
             } else {
               null
             }
@@ -388,9 +419,24 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             // The terms assigned to the object in the post_tag taxonomy.
             val tags = getTags(attributes)
             val taxonomies = getTaxonomies(attributes)
+            val categories = getCategories(attributes)
             val parentPath = getParentPath(attributes)
+            val taxonomiesByKey = taxonomies.groupBy { it.key }
+            val tagsAsTaxonomies = taxonomiesByKey["tags"]
+            val uniqueTags = if (tagsAsTaxonomies != null) {
+              tags.toSet() + tagsAsTaxonomies.flatMap { it.values }.toSet()
+            } else {
+              tags.toSet()
+            }
+            val categoriesAsTaxonomies = taxonomiesByKey["categories"]
+            val uniqueCategories = if (categoriesAsTaxonomies != null) {
+              categories.toSet()  + categoriesAsTaxonomies.flatMap { it.values }.toSet()
+            } else {
+              categories.toSet()
+            }
+            val uniqueTaxonomies = taxonomies.filter { it.key != "categories" && it.key != "tags" }.toSet()
             val author = getAuthor(attributes)
-              DocumentAttributes(slug, title, tags, taxonomies, author, file.readText(Charsets.UTF_8), parentPath)
+            DocumentAttributes(slug, title, uniqueTags, uniqueCategories, uniqueTaxonomies, author, file.readText(Charsets.UTF_8), parentPath)
           } else {
             null
           }
@@ -421,7 +467,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       value.mapNotNull { info ->
         if (info is Map<*, *>) {
           @Suppress("UNCHECKED_CAST")
-          (Taxonomy(info["key"] as String, info["values"] as List<String>))
+          Taxonomy(info["key"] as String, info["values"] as List<String>)
         } else {
           null
         }
@@ -429,6 +475,14 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
     } else {
       listOf()
     }
+  }
+
+  private fun getCategories(attributes: Map<*, *>): List<String> {
+    val value = attributes["categories"] ?: return listOf()
+    if (value is List<*>) {
+      return value.filterIsInstance<String>()
+    }
+    return listOf()
   }
 
   private fun getTags(attributes: Map<*, *>): List<String> {
