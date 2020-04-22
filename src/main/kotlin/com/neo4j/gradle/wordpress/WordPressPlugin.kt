@@ -13,6 +13,7 @@ import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.property
 import org.yaml.snakeyaml.Yaml
@@ -27,7 +28,7 @@ import java.util.*
 open class WordPressExtension(objects: ObjectFactory) {
   val scheme: Property<String> = objects.property()
   val host: Property<String> = objects.property()
-  val port: Property<Int?> = objects.property()
+  val port: Property<Int> = objects.property()
   val username: Property<String> = objects.property()
   val password: Property<String> = objects.property()
 }
@@ -71,7 +72,8 @@ abstract class WordPressUploadTask : DefaultTask() {
   var host: String = ""
 
   @Input
-  var port: Int = -1
+  @Optional
+  val port: Property<Int> = project.objects.property()
 
   @Input
   var username: String = ""
@@ -105,7 +107,7 @@ abstract class WordPressUploadTask : DefaultTask() {
     val schemeValue = wordPressExtension?.scheme?.getOrElse(scheme) ?: scheme
     val usernameValue = wordPressExtension?.username?.getOrElse(username) ?: username
     val passwordValue = wordPressExtension?.password?.getOrElse(password) ?: password
-    val portValue = wordPressExtension?.port?.orNull ?: port
+    val portValue = (wordPressExtension?.port ?: port).orNull
     return WordPressConnectionInfo(
       scheme = schemeValue,
       host = hostValue,
