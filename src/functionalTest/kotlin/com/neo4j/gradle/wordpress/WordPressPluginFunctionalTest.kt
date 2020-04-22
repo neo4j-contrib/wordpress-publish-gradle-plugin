@@ -131,7 +131,6 @@ task wordPressUpload(type: WordPressUploadTask) {
       runner.forwardOutput()
       runner.withPluginClasspath()
       runner.withArguments(":wordPressUpload")
-      runner.withDebug(true)
       runner.withProjectDir(projectDir)
       val result = runner.build()
 
