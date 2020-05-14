@@ -11,7 +11,7 @@ repositories {
 }
 
 dependencies {
-    implementation("com.squareup.okhttp3:okhttp:4.4.0")
+    implementation("com.squareup.okhttp3:okhttp:4.6.0")
     implementation("org.yaml:snakeyaml:1.25")
     implementation("com.beust:klaxon:5.0.1")
     implementation(gradleApi())
@@ -21,7 +21,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.5.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.6.0")
 }
 
 version = "0.0.4"
