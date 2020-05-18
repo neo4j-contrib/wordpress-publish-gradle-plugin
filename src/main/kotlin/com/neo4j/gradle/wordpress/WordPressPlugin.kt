@@ -49,6 +49,7 @@ data class DocumentAttributes(val slug: String,
                               val tags: Set<String>,
                               val categories: Set<String>,
                               val taxonomies: Set<Taxonomy>,
+                              val excerpt: String?,
                               val author: Author?,
                               val content: String,
                               val parentPath: String?)
@@ -239,6 +240,15 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
         "content" to documentAttributes.content,
         "type" to documentType.name
       )
+      // excerpt
+      val excerpt = documentAttributes.excerpt
+      if (excerpt != null) {
+        data["excerpt"] = mapOf(
+          "rendered" to excerpt,
+          "protected" to false
+        )
+      }
+      // taxonomies
       for (taxonomy in documentAttributes.taxonomies) {
         val values = taxonomy.values.mapNotNull { value ->
           val taxonomyReference = taxonomyReferencesBySlug[taxonomy.key]?.get(value)
@@ -251,6 +261,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
         }
         data[taxonomy.key] = values
       }
+      // categories
       val categoryIds = documentAttributes.categories.mapNotNull { category ->
         val taxonomyReference = taxonomyReferencesBySlug["categories"]?.get(category)
         if (taxonomyReference == null) {
@@ -264,6 +275,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       if (categoryIds.isNotEmpty()) {
         data["categories"] = categoryIds
       }
+      // tags
       val tagIds = documentAttributes.tags.mapNotNull { tag ->
         val taxonomyReference = taxonomyReferencesBySlug["tags"]?.get(tag)
         if (taxonomyReference == null) {
@@ -449,7 +461,8 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             }
             val uniqueTaxonomies = taxonomies.filter { it.key != "categories" && it.key != "tags" }.toSet()
             val author = getAuthor(attributes)
-            DocumentAttributes(slug, title, uniqueTags, uniqueCategories, uniqueTaxonomies, author, file.readText(Charsets.UTF_8), parentPath)
+            val excerpt = getExcerpt(attributes)
+            DocumentAttributes(slug, title, uniqueTags, uniqueCategories, uniqueTaxonomies, excerpt, author, file.readText(Charsets.UTF_8), parentPath)
           } else {
             null
           }
@@ -524,6 +537,13 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       return Author(author["name"] as String, author["first_name"] as String, author["last_name"] as String, author["email"] as String)
     }
     return null
+  }
+
+  private fun getExcerpt(attributes: Map<*, *>): String? {
+    return when (val excerpt = attributes["excerpt"]) {
+      is String -> excerpt
+      else -> null
+    }
   }
 
   private fun getTitle(attributes: Map<*, *>, yamlFilePath: String, fileName: String): String? {
