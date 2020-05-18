@@ -1,0 +1,26 @@
+{
+  "category": {
+    "name": "Categories",
+    "slug": "category",
+    "types": [
+      "post"
+    ],
+    "rest_base": "categories"
+  },
+  "post_tag": {
+    "name": "Tags",
+    "slug": "post_tag",
+    "types": [
+      "post"
+    ],
+    "rest_base": "tags"
+  },
+  "neo4j_version": {
+    "name": "Neo4j Versions",
+    "slug": "neo4j_version",
+    "types": [
+      "faq"
+    ],
+    "rest_base": "neo4j_version"
+  }
+}

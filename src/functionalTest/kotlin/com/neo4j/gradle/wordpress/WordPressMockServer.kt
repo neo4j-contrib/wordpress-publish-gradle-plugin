@@ -17,13 +17,37 @@ class WordPressMockServer {
   var postJson = JsonObject()
 
   fun setup(slug: String): MockWebServer {
+    val taxonomies = readFile("wordpress-rest-api/taxonomies.json")
+    val tags = readFile("wordpress-rest-api/tags.json")
+    val categories = readFile("wordpress-rest-api/categories.json")
     // Setup mock server to simulate WordPress
     val dispatcher: Dispatcher = object : Dispatcher() {
       @Throws(InterruptedException::class)
       override fun dispatch(request: RecordedRequest): MockResponse {
         when (request.path) {
+          "/wp-json/wp/v2/categories?page=1&per_page=100" -> {
+            return MockResponse()
+              .setHeader("X-WP-Total", "0")
+              .setHeader("X-WP-TotalPages", "1")
+              .setHeader("Content-Type", "application/json")
+              .setBody(categories)
+              .setResponseCode(200)
+          }
+          "/wp-json/wp/v2/tags?page=1&per_page=100" -> {
+            return MockResponse()
+              .setHeader("X-WP-Total", "3")
+              .setHeader("X-WP-TotalPages", "1")
+              .setHeader("Content-Type", "application/json")
+              .setBody(tags)
+              .setResponseCode(200)
+          }
+          "/wp-json/wp/v2/taxonomies" -> {
+            return MockResponse()
+              .setHeader("Content-Type", "application/json")
+              .setBody(taxonomies)
+              .setResponseCode(200)
+          }
           "/wp-json/wp/v2/media?slug=neo4j-nodes-bottom&page=1&per_page=1" -> {
-            // returns an empty array, the post does not exist!
             return MockResponse()
               .setHeader("X-WP-Total", "1")
               .setHeader("X-WP-TotalPages", "1")
@@ -53,5 +77,10 @@ class WordPressMockServer {
     }
     server.dispatcher = dispatcher
     return server
+  }
+
+  @Throws(Exception::class)
+  private fun readFile(fileName: String): String {
+    return WordPressMockServer::class.java.classLoader.getResource(fileName)!!.readText()
   }
 }
