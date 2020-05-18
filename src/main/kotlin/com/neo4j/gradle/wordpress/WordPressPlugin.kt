@@ -507,7 +507,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       value.mapNotNull { info ->
         if (info is Map<*, *>) {
           @Suppress("UNCHECKED_CAST")
-          Taxonomy(info["key"] as String, info["values"] as List<String>)
+          Taxonomy(info["key"] as String, slugify(info["values"] as List<String>))
         } else {
           null
         }
@@ -520,7 +520,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
   private fun getCategories(attributes: Map<*, *>): List<String> {
     val value = attributes["categories"] ?: return listOf()
     if (value is List<*>) {
-      return value.filterIsInstance<String>()
+      return slugify(value.filterIsInstance<String>())
     }
     return listOf()
   }
@@ -528,7 +528,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
   private fun getTags(attributes: Map<*, *>): List<String> {
     val value = attributes["tags"] ?: return listOf()
     if (value is List<*>) {
-      return value.filterIsInstance<String>()
+      return slugify(value.filterIsInstance<String>())
     }
     return listOf()
   }
@@ -562,7 +562,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
 
   private fun getFeaturedMedia(attributes: Map<*, *>): String? {
     return when (val featuredMedia = attributes["featured_media"]) {
-      is String -> featuredMedia
+      is String -> slugify(featuredMedia)
       else -> null
     }
   }
@@ -574,4 +574,8 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
   private fun getSlug(attributes: Map<*, *>, yamlFilePath: String, fileName: String): String? {
     return getMandatoryString(attributes, "slug", yamlFilePath, fileName)
   }
+
+  private val spaceRegex = Regex("\\s")
+  private fun slugify(values: List<String>) = values.map { slugify(it) }
+  private fun slugify(value: String) = value.replace(spaceRegex, "-")
 }

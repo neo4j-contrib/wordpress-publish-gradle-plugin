@@ -1,13 +1,12 @@
 package com.neo4j.gradle.wordpress
 
+import com.beust.klaxon.JsonArray
 import com.beust.klaxon.JsonObject
 import org.gradle.testkit.runner.BuildResult
 import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.TaskOutcome
 import java.io.File
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.*
 
 
 class WordPressPluginFunctionalTest {
@@ -191,12 +190,60 @@ featured_media: unexisting-media-slug
     }
   }
 
+  @Test
+  fun `should slugify and resolve tag on a new post`() {
+    // Setup mock server to simulate WordPress
+    val wordPressMockServer = WordPressMockServer()
+    val server = wordPressMockServer.setup("00-intro-neo4j-about")
+    try {
+      server.start()
+      // Setup the test build
+      val postWithExcerpt = PostWithMetadata(
+        fileName = "test",
+        htmlContent = """<section>
+  <h2>Introduction to Neo4j 4.0</h2>
+</section>""",
+        yamlContent = """
+---
+slug: 00-intro-neo4j-about
+title: Introduction to Neo4j 4.0
+tags:
+  - etl
+  - unexisting-tag
+  - relational-database
+  - relational graph
+""")
+      val projectDir = WordPressProjectDir.setupUploadTask("test-tags", listOf(postWithExcerpt), server.port, server.hostName)
+      // Run the task
+      val result = runTask(projectDir)
+
+      val postJson = wordPressMockServer.postJson
+      assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
+      assertEquals(postJson["status"] as String, "private")
+      assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
+      assertEquals(postJson["content"] as String, postWithExcerpt.htmlContent)
+      assertEquals(postJson["type"] as String, "post")
+      assertNotNull(postJson["tags"])
+      val tags = postJson["tags"] as JsonArray<Number>
+      assertTrue(tags.isNotEmpty())
+      assertEquals(tags.size, 3)
+      assertTrue(tags.contains(1))
+      assertTrue(tags.contains(2))
+      assertTrue(tags.contains(3))
+      val task = result.task(":wordPressUpload")
+      assertEquals(TaskOutcome.SUCCESS, task?.outcome)
+    } finally {
+      server.shutdown()
+    }
+  }
+
   private fun runTask(projectDir: File): BuildResult {
     val runner = GradleRunner.create()
     runner.forwardOutput()
     runner.withPluginClasspath()
     runner.withArguments("wordPressUpload")
     runner.withProjectDir(projectDir)
+    runner.withDebug(true)
     return runner.build()
   }
 }
