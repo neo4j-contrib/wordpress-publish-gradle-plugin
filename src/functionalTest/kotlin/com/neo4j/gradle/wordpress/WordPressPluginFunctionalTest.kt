@@ -1,17 +1,13 @@
 package com.neo4j.gradle.wordpress
 
 import com.beust.klaxon.JsonObject
-import com.beust.klaxon.Klaxon
-import okhttp3.mockwebserver.Dispatcher
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.RecordedRequest
+import org.gradle.testkit.runner.BuildResult
 import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.TaskOutcome
 import java.io.File
-import java.io.StringReader
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 
 class WordPressPluginFunctionalTest {
@@ -43,15 +39,8 @@ task wordPressUpload(type: WordPressUploadTask) {
   status = "private"
 }
 """)
-
-    // Run the build
-    val runner = GradleRunner.create()
-    runner.forwardOutput()
-    runner.withPluginClasspath()
-    runner.withArguments("wordPressUpload")
-    runner.withProjectDir(projectDir)
-    val result = runner.build()
-
+    // Run the task
+    val result = runTask(projectDir)
     val task = result.task(":wordPressUpload")
     assertEquals(TaskOutcome.SUCCESS, task?.outcome)
   }
@@ -59,85 +48,30 @@ task wordPressUpload(type: WordPressUploadTask) {
   @Test
   fun `should create a new post`() {
     // Setup mock server to simulate WordPress
-    val server = MockWebServer()
-    val klaxon = Klaxon()
-    var postJson: JsonObject = JsonObject()
-    val dispatcher: Dispatcher = object : Dispatcher() {
-      @Throws(InterruptedException::class)
-      override fun dispatch(request: RecordedRequest): MockResponse {
-        when (request.path) {
-          "/wp-json/wp/v2/posts?per_page=1&slug=00-intro-neo4j-about&status=publish%2Cfuture%2Cdraft%2Cpending%2Cprivate" -> {
-            // returns an empty array, the post does not exist!
-            return MockResponse()
-              .setHeader("X-WP-Total", "0")
-              .setHeader("X-WP-TotalPages", "1")
-              .setHeader("Content-Type", "application/json")
-              .setBody("[]")
-              .setResponseCode(200)
-          }
-          "/wp-json/wp/v2/posts" -> {
-            postJson = klaxon.parseJsonObject(StringReader(request.body.readUtf8()))
-            return MockResponse()
-              .setHeader("Content-Type", "application/json")
-              .setBody("""{"id": 1}""")
-              .setResponseCode(200)
-          }
-        }
-        return MockResponse().setResponseCode(404)
-      }
-    }
-    server.dispatcher = dispatcher
+    val wordPressMockServer = WordPressMockServer()
+    val server = wordPressMockServer.setup("00-intro-neo4j-about")
     try {
       server.start()
       // Setup the test build
-      val projectDir = File("build/functionalTest")
-      projectDir.mkdirs()
-      val htmlDir = File("build/functionalTest/html")
-      htmlDir.mkdirs()
-      val htmlContent = """<section>
+      val postWithExcerpt = PostWithMetadata(
+        fileName = "test",
+        htmlContent = """<section>
   <h2>Introduction to Neo4j 4.0</h2>
-</section>"""
-      htmlDir.resolve("test.html").writeText(htmlContent)
-      htmlDir.resolve("test.yml").writeText("""
+</section>""",
+        yamlContent = """
 ---
 slug: 00-intro-neo4j-about
 title: Introduction to Neo4j 4.0
-""".trimIndent())
-      projectDir.resolve("settings.gradle").writeText("")
-      projectDir.resolve("build.gradle").writeText("""
-import com.neo4j.gradle.wordpress.WordPressUploadTask
-
-plugins {
-  id('com.neo4j.gradle.wordpress.WordPressPlugin')
-}
-
-wordpress {
-  username = 'username'
-  password = 'password'
-  port = ${server.port}
-  host = '${server.hostName}'
-  scheme = 'http'
-}
-
-task wordPressUpload(type: WordPressUploadTask) {
-  source = "html"
-  type = "post"
-  status = "private"
-}
 """)
+      val projectDir = WordPressProjectDir.setupUploadTask("test-minimal", listOf(postWithExcerpt), server.port, server.hostName)
+      // Run the task
+      val result = runTask(projectDir)
 
-      // Run the build
-      val runner = GradleRunner.create()
-      runner.forwardOutput()
-      runner.withPluginClasspath()
-      runner.withArguments(":wordPressUpload")
-      runner.withProjectDir(projectDir)
-      val result = runner.build()
-
+      val postJson = wordPressMockServer.postJson
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
-      assertEquals(postJson["content"] as String, htmlContent)
+      assertEquals(postJson["content"] as String, postWithExcerpt.htmlContent)
       assertEquals(postJson["type"] as String, "post")
       val task = result.task(":wordPressUpload")
       assertEquals(TaskOutcome.SUCCESS, task?.outcome)
@@ -146,90 +80,34 @@ task wordPressUpload(type: WordPressUploadTask) {
     }
   }
 
-
   @Test
   fun `should send the excerpt when defined on a new post`() {
     // Setup mock server to simulate WordPress
-    val server = MockWebServer()
-    val klaxon = Klaxon()
-    var postJson: JsonObject = JsonObject()
-    val dispatcher: Dispatcher = object : Dispatcher() {
-      @Throws(InterruptedException::class)
-      override fun dispatch(request: RecordedRequest): MockResponse {
-        when (request.path) {
-          "/wp-json/wp/v2/posts?per_page=1&slug=00-intro-neo4j-about&status=publish%2Cfuture%2Cdraft%2Cpending%2Cprivate" -> {
-            // returns an empty array, the post does not exist!
-            return MockResponse()
-              .setHeader("X-WP-Total", "0")
-              .setHeader("X-WP-TotalPages", "1")
-              .setHeader("Content-Type", "application/json")
-              .setBody("[]")
-              .setResponseCode(200)
-          }
-          "/wp-json/wp/v2/posts" -> {
-            postJson = klaxon.parseJsonObject(StringReader(request.body.readUtf8()))
-            return MockResponse()
-              .setHeader("Content-Type", "application/json")
-              .setBody("""{"id": 1}""")
-              .setResponseCode(200)
-          }
-        }
-        return MockResponse().setResponseCode(404)
-      }
-    }
-    server.dispatcher = dispatcher
+    val wordPressMockServer = WordPressMockServer()
+    val server = wordPressMockServer.setup("00-intro-neo4j-about")
     try {
       server.start()
       // Setup the test build
-      val projectDir = File("build/functionalTest")
-      projectDir.mkdirs()
-      val htmlDir = File("build/functionalTest/html")
-      htmlDir.mkdirs()
-      val htmlContent = """<section>
+      val postWithExcerpt = PostWithMetadata(
+        fileName = "test",
+        htmlContent = """<section>
   <h2>Introduction to Neo4j 4.0</h2>
-</section>"""
-      htmlDir.resolve("test.html").writeText(htmlContent)
-      htmlDir.resolve("test.yml").writeText("""
+</section>""",
+        yamlContent = """
 ---
 slug: 00-intro-neo4j-about
 title: Introduction to Neo4j 4.0
 excerpt: Short introduction to Neo4j 4.0
-""".trimIndent())
-      projectDir.resolve("settings.gradle").writeText("")
-      projectDir.resolve("build.gradle").writeText("""
-import com.neo4j.gradle.wordpress.WordPressUploadTask
-
-plugins {
-  id('com.neo4j.gradle.wordpress.WordPressPlugin')
-}
-
-wordpress {
-  username = 'username'
-  password = 'password'
-  port = ${server.port}
-  host = '${server.hostName}'
-  scheme = 'http'
-}
-
-task wordPressUpload(type: WordPressUploadTask) {
-  source = "html"
-  type = "post"
-  status = "private"
-}
 """)
+      val projectDir = WordPressProjectDir.setupUploadTask("test-excerpt", listOf(postWithExcerpt), server.port, server.hostName)
+      // Run the task
+      val result = runTask(projectDir)
 
-      // Run the build
-      val runner = GradleRunner.create()
-      runner.forwardOutput()
-      runner.withPluginClasspath()
-      runner.withArguments(":wordPressUpload")
-      runner.withProjectDir(projectDir)
-      val result = runner.build()
-
+      val postJson = wordPressMockServer.postJson
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
-      assertEquals(postJson["content"] as String, htmlContent)
+      assertEquals(postJson["content"] as String, postWithExcerpt.htmlContent)
       assertEquals(postJson["type"] as String, "post")
       assertEquals((postJson["excerpt"] as JsonObject)["rendered"] as String, "Short introduction to Neo4j 4.0")
       val task = result.task(":wordPressUpload")
@@ -237,5 +115,88 @@ task wordPressUpload(type: WordPressUploadTask) {
     } finally {
       server.shutdown()
     }
+  }
+
+  @Test
+  fun `should send the featured media when found on a new post`() {
+    // Setup mock server to simulate WordPress
+    val wordPressMockServer = WordPressMockServer()
+    val server = wordPressMockServer.setup("00-intro-neo4j-about")
+    try {
+      server.start()
+      // Setup the test build
+      val postWithExcerpt = PostWithMetadata(
+        fileName = "test",
+        htmlContent = """<section>
+  <h2>Introduction to Neo4j 4.0</h2>
+</section>""",
+        yamlContent = """
+---
+slug: 00-intro-neo4j-about
+title: Introduction to Neo4j 4.0
+featured_media: neo4j-nodes-bottom
+""")
+      val projectDir = WordPressProjectDir.setupUploadTask("test-media", listOf(postWithExcerpt), server.port, server.hostName)
+      // Run the task
+      val result = runTask(projectDir)
+
+      val postJson = wordPressMockServer.postJson
+      assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
+      assertEquals(postJson["status"] as String, "private")
+      assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
+      assertEquals(postJson["content"] as String, postWithExcerpt.htmlContent)
+      assertEquals(postJson["type"] as String, "post")
+      assertEquals(postJson["featured_media"] as Number, 121795)
+      val task = result.task(":wordPressUpload")
+      assertEquals(TaskOutcome.SUCCESS, task?.outcome)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  @Test
+  fun `should not send the featured media when not found on a new post`() {
+    // Setup mock server to simulate WordPress
+    val wordPressMockServer = WordPressMockServer()
+    val server = wordPressMockServer.setup("00-intro-neo4j-about")
+    try {
+      server.start()
+      // Setup the test build
+      val postWithExcerpt = PostWithMetadata(
+        fileName = "test",
+        htmlContent = """<section>
+  <h2>Introduction to Neo4j 4.0</h2>
+</section>""",
+        yamlContent = """
+---
+slug: 00-intro-neo4j-about
+title: Introduction to Neo4j 4.0
+featured_media: unexisting-media-slug
+""")
+      val projectDir = WordPressProjectDir.setupUploadTask("test-media", listOf(postWithExcerpt), server.port, server.hostName)
+      // Run the task
+      val result = runTask(projectDir)
+
+      val postJson = wordPressMockServer.postJson
+      assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
+      assertEquals(postJson["status"] as String, "private")
+      assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
+      assertEquals(postJson["content"] as String, postWithExcerpt.htmlContent)
+      assertEquals(postJson["type"] as String, "post")
+      assertFalse(postJson.containsKey("featured_media"))
+      val task = result.task(":wordPressUpload")
+      assertEquals(TaskOutcome.SUCCESS, task?.outcome)
+    } finally {
+      server.shutdown()
+    }
+  }
+
+  private fun runTask(projectDir: File): BuildResult {
+    val runner = GradleRunner.create()
+    runner.forwardOutput()
+    runner.withPluginClasspath()
+    runner.withArguments("wordPressUpload")
+    runner.withProjectDir(projectDir)
+    return runner.build()
   }
 }

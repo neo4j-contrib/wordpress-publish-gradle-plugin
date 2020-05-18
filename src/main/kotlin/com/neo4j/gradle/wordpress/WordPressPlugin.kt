@@ -50,6 +50,7 @@ data class DocumentAttributes(val slug: String,
                               val categories: Set<String>,
                               val taxonomies: Set<Taxonomy>,
                               val excerpt: String?,
+                              val featuredMedia: String?,
                               val author: Author?,
                               val content: String,
                               val parentPath: String?)
@@ -230,6 +231,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       emptyMap()
     }
     val usersService = WordPressUsers(httpClient, logger)
+    val mediasService = WordPressMedias(httpClient, logger)
     val wordPressAuthorsCache = mutableMapOf<String, WordPressUser?>()
     for (documentAttributes in documentsWithAttributes) {
       val data = mutableMapOf<String, Any>(
@@ -307,6 +309,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       if (documentTemplate.isNotBlank()) {
         data["template"] = documentTemplate
       }
+      // author
       val documentAuthor = documentAttributes.author
       if (documentAuthor != null) {
         val authorName = documentAuthor.name
@@ -321,6 +324,16 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
           logger.info("Unable to find the author for email $authorName, using the default author")
         } else {
           data["author"] = wordPressAuthor.id
+        }
+      }
+      // featured media
+      val featuredMedia = documentAttributes.featuredMedia
+      if (featuredMedia != null) {
+        val wordPressMedia = mediasService.findMedia(featuredMedia)
+        if (wordPressMedia == null) {
+          logger.info("Unable to find the featured media for slug $featuredMedia, ignoring")
+        } else {
+          data["featured_media"] = wordPressMedia.id
         }
       }
       val wordPressDocument = wordPressDocumentsBySlug[documentAttributes.slug]
@@ -462,7 +475,8 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             val uniqueTaxonomies = taxonomies.filter { it.key != "categories" && it.key != "tags" }.toSet()
             val author = getAuthor(attributes)
             val excerpt = getExcerpt(attributes)
-            DocumentAttributes(slug, title, uniqueTags, uniqueCategories, uniqueTaxonomies, excerpt, author, file.readText(Charsets.UTF_8), parentPath)
+            val featuredMedia = getFeaturedMedia(attributes)
+            DocumentAttributes(slug, title, uniqueTags, uniqueCategories, uniqueTaxonomies, excerpt, featuredMedia, author, file.readText(Charsets.UTF_8), parentPath)
           } else {
             null
           }
@@ -542,6 +556,13 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
   private fun getExcerpt(attributes: Map<*, *>): String? {
     return when (val excerpt = attributes["excerpt"]) {
       is String -> excerpt
+      else -> null
+    }
+  }
+
+  private fun getFeaturedMedia(attributes: Map<*, *>): String? {
+    return when (val featuredMedia = attributes["featured_media"]) {
+      is String -> featuredMedia
       else -> null
     }
   }
