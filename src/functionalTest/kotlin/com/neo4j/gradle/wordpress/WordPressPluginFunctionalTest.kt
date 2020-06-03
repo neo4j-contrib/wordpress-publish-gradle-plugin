@@ -66,7 +66,8 @@ title: Introduction to Neo4j 4.0
       // Run the task
       val result = runTask(projectDir)
 
-      val postJson = wordPressMockServer.postJson
+      assertEquals(wordPressMockServer.dataReceived.size, 1)
+      val postJson = wordPressMockServer.dataReceived.first()
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
@@ -102,7 +103,8 @@ excerpt: Short introduction to Neo4j 4.0
       // Run the task
       val result = runTask(projectDir)
 
-      val postJson = wordPressMockServer.postJson
+      assertEquals(wordPressMockServer.dataReceived.size, 1)
+      val postJson = wordPressMockServer.dataReceived.first()
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
@@ -139,7 +141,8 @@ featured_media: neo4j-nodes-bottom
       // Run the task
       val result = runTask(projectDir)
 
-      val postJson = wordPressMockServer.postJson
+      assertEquals(wordPressMockServer.dataReceived.size, 1)
+      val postJson = wordPressMockServer.dataReceived.first()
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
@@ -176,7 +179,8 @@ featured_media: unexisting-media-slug
       // Run the task
       val result = runTask(projectDir)
 
-      val postJson = wordPressMockServer.postJson
+      assertEquals(wordPressMockServer.dataReceived.size, 1)
+      val postJson = wordPressMockServer.dataReceived.first()
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
@@ -217,14 +221,15 @@ tags:
       // Run the task
       val result = runTask(projectDir)
 
-      val postJson = wordPressMockServer.postJson
+      assertEquals(wordPressMockServer.dataReceived.size, 1)
+      val postJson = wordPressMockServer.dataReceived.first()
       assertEquals(postJson["slug"] as String, "00-intro-neo4j-about")
       assertEquals(postJson["status"] as String, "private")
       assertEquals(postJson["title"] as String, "Introduction to Neo4j 4.0")
       assertEquals(postJson["content"] as String, postWithExcerpt.htmlContent)
       assertEquals(postJson["type"] as String, "post")
       assertNotNull(postJson["tags"])
-      val tags = postJson["tags"] as JsonArray<Number>
+      val tags = postJson["tags"] as JsonArray<*>
       assertTrue(tags.isNotEmpty())
       assertEquals(tags.size, 3)
       assertTrue(tags.contains(1))

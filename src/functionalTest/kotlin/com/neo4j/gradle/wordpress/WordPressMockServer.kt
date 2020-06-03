@@ -12,13 +12,14 @@ import java.io.StringReader
 class WordPressMockServer {
 
   // Setup mock server to simulate WordPress
-  val server = MockWebServer()
+  private val server = MockWebServer()
   val klaxon = Klaxon()
-  var postJson = JsonObject()
+  var dataReceived = mutableListOf<JsonObject>()
 
   fun setup(slug: String): MockWebServer {
     val taxonomies = readFile("wordpress-rest-api/taxonomies.json")
     val tags = readFile("wordpress-rest-api/tags.json")
+    val neo4jVersionsTaxonomy = readFile("wordpress-rest-api/neo4j_version.json")
     val categories = readFile("wordpress-rest-api/categories.json")
     // Setup mock server to simulate WordPress
     val dispatcher: Dispatcher = object : Dispatcher() {
@@ -39,6 +40,22 @@ class WordPressMockServer {
               .setHeader("X-WP-TotalPages", "1")
               .setHeader("Content-Type", "application/json")
               .setBody(tags)
+              .setResponseCode(200)
+          }
+          "/wp-json/wp/v2/neo4j_version?page=1&per_page=100" -> {
+            return MockResponse()
+              .setHeader("X-WP-Total", "5")
+              .setHeader("X-WP-TotalPages", "1")
+              .setHeader("Content-Type", "application/json")
+              .setBody(neo4jVersionsTaxonomy)
+              .setResponseCode(200)
+          }
+          "/wp-json/wp/v2/neo4j_version" -> {
+            val data = klaxon.parseJsonObject(StringReader(request.body.readUtf8()))
+            dataReceived.add(data)
+            MockResponse()
+              .setHeader("Content-Type", "application/json")
+              .setBody("""{"id": 1, "name": "${data["name"]}", "name": "${data["slug"]}"}""")
               .setResponseCode(200)
           }
           "/wp-json/wp/v2/taxonomies" -> {
@@ -65,7 +82,8 @@ class WordPressMockServer {
               .setResponseCode(200)
           }
           "/wp-json/wp/v2/posts" -> {
-            postJson = klaxon.parseJsonObject(StringReader(request.body.readUtf8()))
+            val data = klaxon.parseJsonObject(StringReader(request.body.readUtf8()))
+            dataReceived.add(data)
             return MockResponse()
               .setHeader("Content-Type", "application/json")
               .setBody("""{"id": 1}""")
