@@ -42,6 +42,8 @@ open class WordPressPlugin : Plugin<Project> {
 
 data class Author(val name: String, val firstName: String, val lastName: String, val email: String)
 
+data class TaxonomyValue(val id: Long, val slug: String, val name: String)
+
 data class Taxonomy(val key: String, val values: List<String>)
 
 data class DocumentAttributes(val slug: String,
@@ -55,18 +57,7 @@ data class DocumentAttributes(val slug: String,
                               val content: String,
                               val parentPath: String?)
 
-abstract class WordPressUploadTask : DefaultTask() {
-
-  @InputFiles
-  var sources: MutableList<ConfigurableFileTree> = mutableListOf()
-
-  @Input
-  var type: String = ""
-
-  @Input
-  // publish, future, draft, pending, private
-  var status: String = "draft"
-
+abstract class WordPressTask : DefaultTask() {
   @Input
   var scheme: String = "https"
 
@@ -82,6 +73,35 @@ abstract class WordPressUploadTask : DefaultTask() {
 
   @Input
   var password: String = ""
+
+  protected fun wordPressConnectionInfo(): WordPressConnectionInfo {
+    val wordPressExtension = project.extensions.findByType(WordPressExtension::class.java)
+    val hostValue = wordPressExtension?.host?.getOrElse(host) ?: host
+    val schemeValue = wordPressExtension?.scheme?.getOrElse(scheme) ?: scheme
+    val usernameValue = wordPressExtension?.username?.getOrElse(username) ?: username
+    val passwordValue = wordPressExtension?.password?.getOrElse(password) ?: password
+    val portValue = (wordPressExtension?.port ?: port).orNull
+    return WordPressConnectionInfo(
+      scheme = schemeValue,
+      host = hostValue,
+      port = portValue,
+      username = usernameValue,
+      password = passwordValue
+    )
+  }
+}
+
+open class WordPressUploadTask : WordPressTask() {
+
+  @InputFiles
+  var sources: MutableList<ConfigurableFileTree> = mutableListOf()
+
+  @Input
+  var type: String = ""
+
+  @Input
+  // publish, future, draft, pending, private
+  var status: String = "draft"
 
   @Input
   var template: String = ""
@@ -101,22 +121,6 @@ abstract class WordPressUploadTask : DefaultTask() {
       logger = logger
     )
     wordPressUpload.publish()
-  }
-
-  private fun wordPressConnectionInfo(): WordPressConnectionInfo {
-    val wordPressExtension = project.extensions.findByType(WordPressExtension::class.java)
-    val hostValue = wordPressExtension?.host?.getOrElse(host) ?: host
-    val schemeValue = wordPressExtension?.scheme?.getOrElse(scheme) ?: scheme
-    val usernameValue = wordPressExtension?.username?.getOrElse(username) ?: username
-    val passwordValue = wordPressExtension?.password?.getOrElse(password) ?: password
-    val portValue = (wordPressExtension?.port ?: port).orNull
-    return WordPressConnectionInfo(
-      scheme = schemeValue,
-      host = hostValue,
-      port = portValue,
-      username = usernameValue,
-      password = passwordValue
-    )
   }
 
   fun setSource(sources: FileCollection) {

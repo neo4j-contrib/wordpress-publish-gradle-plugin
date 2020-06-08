@@ -4,9 +4,53 @@ import com.beust.klaxon.JsonArray
 import com.beust.klaxon.JsonObject
 import com.beust.klaxon.KlaxonException
 import org.gradle.api.logging.Logger
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
 
+
+open class WordPressTaxonomySyncTask : WordPressTask() {
+
+  @Input
+  var values: MutableList<String> = mutableListOf()
+
+  @Input
+  var restBase: String = ""
+
+  @TaskAction
+  fun task() {
+    if (restBase.isBlank()) {
+      logger.error("The taxonomy rest_base is mandatory, aborting...")
+      return
+    }
+    if (values.isEmpty()) {
+      logger.quiet("No values to sync, skipping...")
+      return
+    }
+    val httpClient = WordPressHttpClient(wordPressConnectionInfo(), logger)
+    val wordPressTaxonomies = WordPressTaxonomies(
+      wordPressHttpClient = httpClient,
+      logger = logger
+    )
+    wordPressTaxonomies.sync(restBase, values)
+  }
+}
 
 class WordPressTaxonomies(private val wordPressHttpClient: WordPressHttpClient, private val logger: Logger) {
+
+  fun sync(taxonomyRestBase: String, values: List<String>) {
+    val taxonomyEndpoint = TaxonomyEndpoint(taxonomyRestBase, taxonomyRestBase)
+    val taxonomyReferences = getTaxonomyReferences(taxonomyEndpoint)
+    val taxonomyReferenceSlugs = taxonomyReferences.map { it.slug }
+    val missingTaxonomies = values.filter { !taxonomyReferenceSlugs.contains(it) }
+    if (missingTaxonomies.isNotEmpty()) {
+      logger.quiet("$missingTaxonomies are missing in $taxonomyRestBase, creating...")
+      for (missingTaxonomy in missingTaxonomies) {
+        createTaxonomy(taxonomyEndpoint, missingTaxonomy)
+      }
+    } else {
+      logger.quiet("$taxonomyRestBase is up-to-date")
+    }
+  }
 
   fun getTaxonomyReferencesBySlug(documentType: WordPressDocumentType, taxonomySlugs: Set<String>): Map<String, Map<String, Int>> {
     // taxonomies cannot be assigned on a page
@@ -74,6 +118,25 @@ class WordPressTaxonomies(private val wordPressHttpClient: WordPressHttpClient, 
           null
         }
       } else {
+        null
+      }
+    }
+  }
+
+  private fun createTaxonomy(taxonomyEndpoint: TaxonomyEndpoint, value: String): TaxonomyValue? {
+    val baseUrl = wordPressHttpClient.baseUrlBuilder()
+      .addPathSegment(taxonomyEndpoint.endpoint)
+      .build()
+    val data = mutableMapOf<String, Any>(
+      "name" to value,
+      "slug" to value
+    )
+    return wordPressHttpClient.executeRequest(wordPressHttpClient.buildPostRequest(baseUrl, data)) { responseBody ->
+      try {
+        val json = wordPressHttpClient.parseJsonObject(responseBody)
+        TaxonomyValue(json.long("id")!!, json.string("slug")!!, json.string("name")!!)
+      } catch (e: KlaxonException) {
+        logger.error("Unable to parse the response", e)
         null
       }
     }
