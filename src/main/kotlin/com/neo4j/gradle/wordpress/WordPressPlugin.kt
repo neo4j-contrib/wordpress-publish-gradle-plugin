@@ -183,29 +183,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       return false
     }
     val slugs = documentsWithAttributes.map { it.slug }
-    val searchUrl = httpClient.baseUrlBuilder()
-      .addPathSegment(documentType.urlPath)
-      .addQueryParameter("per_page", slugs.size.toString())
-      .addQueryParameter("slug", slugs.joinToString(","))
-      .addQueryParameter("status", "publish,future,draft,pending,private")
-      .build()
-    val searchRequest = httpClient.buildGetRequest(searchUrl)
-    val wordPressDocumentsBySlug = httpClient.executeRequest(searchRequest) { responseBody ->
-      try {
-        val jsonArray = klaxon.parseJsonArray(responseBody.charStream())
-        jsonArray.value.mapNotNull { item ->
-          if (item is JsonObject) {
-            val slug = item.string("slug")!!
-            slug to WordPressDocument(item.int("id")!!, slug, documentType)
-          } else {
-            null
-          }
-        }.toMap()
-      } catch (e: KlaxonException) {
-        logger.error("Unable to parse the response", e)
-        null
-      }
-    } ?: return false
+    val  wordPressDocumentsBySlug = getWordPressDocumentsBySlug(slugs) ?: return false
     val parentIdsByPath = mutableMapOf<String, WordPressDocument?>()
     val taxonomyReferencesBySlug = if (documentType.name !== "page") {
       val taxonomySlugs = documentsWithAttributes.flatMap {
@@ -339,6 +317,42 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
       }
     }
     return true
+  }
+
+  private fun getWordPressDocumentsBySlug(slugs: List<String>): Map<String, WordPressDocument>? {
+    val slugsChunks = slugs.chunked(100)
+    val agg = mutableMapOf<String, WordPressDocument>()
+    for (slugsChunk in slugsChunks) {
+      val result = getWordPressDocumentsBySlugChunk(slugsChunk) ?: return null
+      agg.putAll(result)
+    }
+    return agg
+  }
+
+  private fun getWordPressDocumentsBySlugChunk(slugs: List<String>): Map<String, WordPressDocument>? {
+    val searchUrl = httpClient.baseUrlBuilder()
+      .addPathSegment(documentType.urlPath)
+      .addQueryParameter("per_page", slugs.size.toString())
+      .addQueryParameter("slug", slugs.joinToString(","))
+      .addQueryParameter("status", "publish,future,draft,pending,private")
+      .build()
+    val searchRequest = httpClient.buildGetRequest(searchUrl)
+    return httpClient.executeRequest(searchRequest) { responseBody ->
+      try {
+        val jsonArray = klaxon.parseJsonArray(responseBody.charStream())
+        jsonArray.value.mapNotNull { item ->
+          if (item is JsonObject) {
+            val slug = item.string("slug")!!
+            slug to WordPressDocument(item.int("id")!!, slug, documentType)
+          } else {
+            null
+          }
+        }.toMap()
+      } catch (e: KlaxonException) {
+        logger.error("Unable to parse the response", e)
+        null
+      }
+    }
   }
 
   private fun findParentPage(parentPath: String): WordPressDocument? {
