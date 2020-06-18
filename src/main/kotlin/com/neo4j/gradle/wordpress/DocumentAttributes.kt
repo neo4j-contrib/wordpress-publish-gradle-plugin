@@ -39,7 +39,12 @@ class DocumentAttributesReader(val logger: Logger) {
           logger.warn("Missing YAML file: $yamlFileAbsolutePath, unable to publish $fileName to WordPress")
           null
         } else {
-          fromFile(yamlFile, file)
+          try {
+            fromFile(yamlFile, file)
+          } catch (e: Exception) {
+            logger.warn("Error while parsing the YAML file: $yamlFileAbsolutePath, unable to publish $fileName to WordPress", e)
+            null
+          }
         }
       }
   }
