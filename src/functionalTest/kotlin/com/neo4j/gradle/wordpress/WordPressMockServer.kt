@@ -21,6 +21,7 @@ class WordPressMockServer {
     val tags = readFile("wordpress-rest-api/tags.json")
     val neo4jVersionsTaxonomy = readFile("wordpress-rest-api/neo4j_version.json")
     val categories = readFile("wordpress-rest-api/categories.json")
+    val neo4jGraphDatabasePosts = readFile("wordpress-rest-api/01-neo4j-graph-database-posts.json")
     // Setup mock server to simulate WordPress
     val dispatcher: Dispatcher = object : Dispatcher() {
       @Throws(InterruptedException::class)
@@ -73,6 +74,14 @@ class WordPressMockServer {
               .setResponseCode(200)
           }
           "/wp-json/wp/v2/posts?per_page=1&slug=$slug&status=publish%2Cfuture%2Cdraft%2Cpending%2Cprivate" -> {
+            if (slug == "01-neo4j-graph-database") {
+              return MockResponse()
+                .setHeader("X-WP-Total", "1")
+                .setHeader("X-WP-TotalPages", "1")
+                .setHeader("Content-Type", "application/json")
+                .setBody(neo4jGraphDatabasePosts)
+                .setResponseCode(200)
+            }
             // returns an empty array, the post does not exist!
             return MockResponse()
               .setHeader("X-WP-Total", "0")
@@ -87,6 +96,14 @@ class WordPressMockServer {
             return MockResponse()
               .setHeader("Content-Type", "application/json")
               .setBody("""{"id": 1}""")
+              .setResponseCode(200)
+          }
+          "/wp-json/wp/v2/posts/124535" -> {
+            val data = klaxon.parseJsonObject(StringReader(request.body.readUtf8()))
+            dataReceived.add(data)
+            return MockResponse()
+              .setHeader("Content-Type", "application/json")
+              .setBody("""{"id": 124535}""")
               .setResponseCode(200)
           }
         }
