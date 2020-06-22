@@ -1,0 +1,30 @@
+[
+  {
+    "id": 124535,
+    "date": "2020-06-22T00:00:02",
+    "date_gmt": "2020-06-22T07:00:02",
+    "guid": {
+      "rendered": "https:\/\/neo4j.com\/?p=124535"
+    },
+    "modified": "2020-06-18T10:44:33",
+    "modified_gmt": "2020-06-18T17:44:33",
+    "slug": "01-neo4j-graph-database",
+    "status": "publish",
+    "type": "post",
+    "title": {
+      "rendered": "Neo4j is a Graph Database"
+    },
+    "content": {
+      "rendered": "<section>\n  <h2>Neo4j is a Graph Database</h2>\n</section>\n<!-- METADATA! {\"digest\":\"a652d0d3bfe8f2814c7a93b10b3a8f62\"} !METADATA -->",
+      "protected": false
+    },
+    "author": 101,
+    "featured_media": 124537,
+    "comment_status": "open",
+    "ping_status": "closed",
+    "sticky": false,
+    "template": "",
+    "format": "standard",
+    "meta": []
+  }
+]

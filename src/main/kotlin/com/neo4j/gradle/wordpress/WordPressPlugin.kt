@@ -16,7 +16,9 @@ import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.property
+import java.io.StringReader
 import java.net.URL
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.time.Duration
 import java.util.*
@@ -156,9 +158,35 @@ data class WordPressDocumentType(val name: String) {
   }
 }
 
-data class WordPressDocument(val id: Int,
+data class WordPressDocument(val id: Long,
                              val slug: String,
-                             val type: WordPressDocumentType)
+                             val content: String,
+                             val type: WordPressDocumentType) {
+
+  companion object {
+    fun fromJson(json: JsonObject, documentType: WordPressDocumentType): WordPressDocument {
+      val slug = json.string("slug")!!
+      val content = json.obj("content")
+      val htmlContent = if (content is JsonObject) {
+        content.string("rendered").orEmpty()
+      } else {
+        ""
+      }
+      return WordPressDocument(json.long("id")!!, slug, htmlContent, documentType)
+    }
+  }
+}
+
+object WordPressDate {
+  private val formatter: SimpleDateFormat
+
+  init {
+    formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+    formatter.timeZone = TimeZone.getTimeZone("UTC")
+  }
+
+  fun format(date:Date): String = formatter.format(date)
+}
 
 internal class WordPressUpload(val documentType: WordPressDocumentType,
                                val documentStatus: String,
@@ -167,15 +195,12 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
                                val connectionInfo: WordPressConnectionInfo,
                                val logger: Logger) {
 
-
   private val klaxon = Klaxon()
   private val httpClient = WordPressHttpClient(connectionInfo, logger)
+  private val htmlMetadataRegex = Regex("<!-- METADATA! (?<json>.*) !METADATA -->\$")
+  private val md5Digest = MessageDigest.getInstance("MD5")
 
   fun publish(): Boolean {
-    val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
-    formatter.timeZone = TimeZone.getTimeZone("UTC")
-    formatter.format(Date())
-    val date = formatter.format(Date())
     val documentAttributesReader = DocumentAttributesReader(logger)
     val documentsWithAttributes = documentAttributesReader.get(sources)
     if (documentsWithAttributes.isEmpty()) {
@@ -204,7 +229,6 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
     val wordPressAuthorsCache = mutableMapOf<String, WordPressUser?>()
     for (documentAttributes in documentsWithAttributes) {
       val data = mutableMapOf<String, Any>(
-        "date_gmt" to date,
         "slug" to documentAttributes.slug,
         "status" to documentStatus,
         "title" to documentAttributes.title,
@@ -308,15 +332,49 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
         }
       }
       val wordPressDocument = wordPressDocumentsBySlug[documentAttributes.slug]
+      val digest = computeDigest(data)
+      data["content"] = appendMetadataToHTML(documentAttributes.content, JsonObject(mapOf("digest" to digest)))
+      data["date_gmt"] = WordPressDate.format(Date())
       if (wordPressDocument != null) {
-        // document already exists on WordPress, updating...
-        updateDocument(data, wordPressDocument)
+        val currentDigest = getMetadataDigestFromHTML(wordPressDocument)
+        if (currentDigest == digest) {
+          logger.quiet("Skipping ${documentType.name.toLowerCase()} with id: ${wordPressDocument.id} and slug: ${wordPressDocument.slug}, content has not changed")
+        } else {
+          // document already exists on WordPress, updating...
+          updateDocument(data, wordPressDocument)
+        }
       } else {
         // document does not exist on WordPress, creating...
         createDocument(data)
       }
     }
     return true
+  }
+
+  private fun appendMetadataToHTML(html: String, metadata: JsonObject): String {
+    return """$html
+<!-- METADATA! ${metadata.toJsonString()} !METADATA -->"""
+  }
+
+  private fun getMetadataDigestFromHTML(existingDocument: WordPressDocument): String? {
+    val metadata = getMetadataFromHTML(existingDocument.content)
+    return metadata?.string("digest")
+  }
+
+  private fun getMetadataFromHTML(html: String): JsonObject? {
+    val find = htmlMetadataRegex.find(html)
+    val jsonMatchGroup = find?.groups?.get("json")
+    if (jsonMatchGroup != null) {
+      val json = jsonMatchGroup.value
+      return klaxon.parseJsonObject(StringReader(json))
+    }
+    return null
+  }
+
+  private fun computeDigest(data: MutableMap<String, Any>): String {
+    return md5Digest
+      .digest(klaxon.toJsonString(data).toByteArray())
+      .fold("", { str, it -> str + "%02x".format(it) })
   }
 
   private fun getWordPressDocumentsBySlug(slugs: List<String>): Map<String, WordPressDocument>? {
@@ -343,7 +401,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
         jsonArray.value.mapNotNull { item ->
           if (item is JsonObject) {
             val slug = item.string("slug")!!
-            slug to WordPressDocument(item.int("id")!!, slug, documentType)
+            slug to WordPressDocument.fromJson(item, documentType)
           } else {
             null
           }
@@ -382,8 +440,7 @@ internal class WordPressUpload(val documentType: WordPressDocumentType,
             val linkPath = URL(link).path.removeSuffix("/")
             val parentLinkPath = parentPath.removeSuffix("/")
             if (linkPath == parentLinkPath) {
-              val slug = item.string("slug")!!
-              WordPressDocument(item.int("id")!!, slug, documentType)
+              WordPressDocument.fromJson(item, documentType)
             } else {
               null
             }
